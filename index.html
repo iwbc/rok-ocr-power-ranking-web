@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RoK 個人戦力ランキング OCR集計ツール</title>
+    <link rel="stylesheet" href="/libs/image-uploader.min.css" />
+    <style>
+      body {
+        font-size: 16px;
+        margin: 50px 50px 0;
+      }
+      h1,
+      h2,
+      h3,
+      h4,
+      h5,
+      p:first-child {
+        margin-top: 0;
+      }
+      a,
+      a:active,
+      a:visited,
+      a:hover {
+        color: #04c;
+      }
+      input[type="submit"] {
+        width: 400px;
+        height: 60px;
+        border: 1px solid rgb(63, 124, 71);
+        background-color: rgb(76, 143, 85);
+        border-radius: 5px;
+        color: #fff;
+        font-weight: bold;
+        font-size: 16px;
+        cursor: pointer;
+      }
+      input[type="submit"]:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      #upload {
+        text-align: center;
+      }
+      #result {
+        margin-top: 50px;
+      }
+      #progress {
+        height: 300px;
+        padding: 20px;
+        overflow-y: scroll;
+        background-color: #333;
+        color: #fff;
+      }
+      #progress pre {
+        padding: 0;
+        margin: 0;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+      #manual {
+        margin: 50px -50px 0;
+        background-color: #f2f2f2;
+        padding: 50px;
+      }
+      #manual img {
+        max-width: 640px;
+      }
+      .image-uploader {
+        height: 400px;
+        overflow-y: auto;
+      }
+      .image-uploader .uploaded .uploaded-image img {
+        top: 0;
+        left: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>RoK 個人戦力ランキング OCR集計ツール</h1>
+
+    <div id="upload">
+      <form id="form" name="uploader">
+        <div class="input-images"></div>
+        <p>
+          最大100ファイルまで<br /><a href="#manual"
+            >OCR用スクリーンショットの撮影方法</a
+          >
+        </p>
+        <input id="submit" type="submit" value="集計開始" />
+      </form>
+    </div>
+
+    <div id="result">
+      <h2>集計結果</h2>
+      <div id="progress">
+        <pre id="log"></pre>
+      </div>
+    </div>
+
+    <div id="manual">
+      <h2>OCR用スクリーンショットの撮影方法</h2>
+      <p>
+        <img src="images/bs-1.jpg" alt="" /><br />
+        <img
+          src="images/bs-2.jpg"
+          alt=""
+        /><br />BlueStacksのディスプレイ設定で解像度を「1600x900」、DPIを「240」にする。
+      </p>
+      <p>
+        <img src="images/pr-1.jpg" alt="" /><br />
+        <img src="images/pr-2.jpg" alt="" /><br />
+        計算したい順位までスクリーンショットを撮影する。<br />
+        <span style="color: red"
+          >※OSのスクリーンショット撮影機能ではなくBlueStacksの機能で撮影する（ショートカットキー：CTRL+SHIFT+S）</span
+        ><br />
+        ※300位までに必要なスクリーンショットは50枚。
+      </p>
+    </div>
+
+    <script
+      src="https://code.jquery.com/jquery-3.6.0.min.js"
+      integrity="sha256-/xUj+3OJU5yExlq6GSYGSHk7tPXikynS7ogEvDej/m4="
+      crossorigin="anonymous"
+    ></script>
+    <script src="/libs/image-uploader.min.js"></script>
+    <script>
+      $(function () {
+        var uploader = null;
+        initUploader();
+
+        $("#form").on("submit", function (e) {
+          e.preventDefault();
+
+          $form = $(this);
+
+          var $fileInput = $form.find('[type="file"]');
+          if (!$fileInput.prop("files").length) {
+            return;
+          }
+
+          var formData = new FormData();
+          $.each($fileInput.prop("files"), function (index, file) {
+            formData.append("images[]", file);
+          });
+
+          $form.find("#submit").prop("disabled", true);
+          console.log(formData.getAll("images[]"));
+
+          $.ajax({
+            url: "/ocr/upload.php",
+            type: "post",
+            data: formData,
+            processData: false,
+            contentType: false,
+            cache: false,
+            xhr: function () {
+              var xhr = $.ajaxSettings.xhr();
+              xhr.upload.addEventListener(
+                "progress",
+                function (e) {
+                  $("#log").text(
+                    "アップロード中（" +
+                      Math.round((e.loaded / e.total) * 100) +
+                      "%）\n\n"
+                  );
+                },
+                false
+              );
+              return xhr;
+            },
+          }).done(function (data) {
+            var timer;
+            $.ajax({
+              url: "/ocr/process.php",
+              type: "get",
+              data: {
+                process_id: data.process_id,
+              },
+              cache: false,
+              xhrFields: {
+                onloadstart: function () {
+                  var xhr = this;
+                  var text_length = 0;
+                  timer = setInterval(function () {
+                    var text = xhr.responseText;
+                    var diff = text.substring(text_length);
+                    if (text.length > text_length) {
+                      text_length = text.length;
+                      $("#log").append(diff.replace(/ {2,}/gm, ""));
+                      $("#progress").scrollTop($("#progress")[0].scrollHeight);
+                    }
+                  }, 100);
+                },
+              },
+            })
+              .always(function () {
+                setTimeout(function () {
+                  clearInterval(timer);
+                }, 1000);
+              })
+              .done(function () {
+                initUploader();
+                $form.find("#submit").prop("disabled", false);
+              });
+          });
+        });
+
+        function initUploader() {
+          if (uploader) {
+            uploader.empty();
+            uploader = null;
+          }
+          uploader = $(".input-images").imageUploader({
+            label: "スクリーンショットをここにドラッグ＆ドロップ",
+          });
+        }
+      });
+    </script>
+  </body>
+</html>
